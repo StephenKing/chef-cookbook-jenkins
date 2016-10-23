@@ -259,6 +259,8 @@ EOH
     # @option opts [Boolean] :install_deps indicates a plugins dependencies should be installed
     #
     def install_plugin_from_update_center(plugin_name, plugin_version, opts = {})
+
+      Chef::Log.info "Installing #{plugin_name}:#{plugin_version}"
       remote_plugin_data = plugin_universe[plugin_name]
 
       # Compute some versions; Parse them as `Gem::Version` instances for easy
@@ -270,15 +272,24 @@ EOH
         Chef::Log.debug "Installing plugin dependencies for #{plugin_name}"
 
         remote_plugin_data['dependencies'].each do |dep|
-          # continue if any version of the dependency is installed
-          if plugin_installation_manifest(dep['name'])
-            Chef::Log.debug "A version of dependency #{dep['name']} is already installed - skipping"
-            next
-          elsif dep['optional'] == false
+          if dep['optional']
             # only install required dependencies
-            Chef::Log.debug "#{dep['name']} is not optional, installing"
-            install_plugin_from_update_center(dep['name'], dep['version'], opts)
+            next
           end
+
+          current_version = plugin_installed_version(dep['name'])
+          unless current_version.nil?
+            Chef::Log.debug "Dependency #{dep['name']} is already installed in version #{current_version}, required is #{dep['version']}"
+
+            unless plugin_upgrade?(current_version, plugin_version(dep['version']))
+              Chef::Log.debug "Plugin #{dep['name']}:#{current_version} sufficient"
+              next
+            else
+              Chef::Log.debug "Upgrading dependent plugin #{dep['name']} from #{current_version} to #{dep['version']} (dependency of #{plugin_name})"
+            end
+          end
+
+          install_plugin_from_update_center(dep['name'], dep['version'], opts)
         end
       end
 
@@ -389,6 +400,17 @@ EOH
     end
 
     #
+    # Returns the version of the installed plugin
+    #
+    # @param [String] name of the plugin
+    # @return [String] version
+    #
+    def plugin_installed_version(plugin_name)
+      plugin_manifest = plugin_installation_manifest(plugin_name)
+      plugin_version(plugin_manifest['plugin_version']) unless plugin_manifest.nil?
+    end
+
+    #
     # Return the installation manifest for +plugin_name+. If the plugin is not
     # installed +nil+ is returned.
     #
@@ -448,6 +470,8 @@ EOH
       current_version < desired_version
     rescue ArgumentError
       current_version.to_s < desired_version.to_s
+    rescue NoMethodError
+      Chef::Log.warn "Could not compare versions #{current_version} < #{desired_version}"
     end
 
     #
@@ -463,6 +487,7 @@ EOH
     def plugin_version(version)
       Gem::Version.new(version)
     rescue ArgumentError
+      Chef::Log.warn "Could not use Gem::Version for '#{version}'"
       version
     end
   end
