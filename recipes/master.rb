@@ -26,6 +26,8 @@
 # limitations under the License.
 #
 
+chef_gem "rubyzip"
+
 # Gracefully handle the failure for an invalid installation type
 begin
   include_recipe "jenkins::_master_#{node['jenkins']['master']['install_method']}"

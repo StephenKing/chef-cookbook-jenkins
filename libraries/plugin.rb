@@ -276,6 +276,7 @@ EOH
             next
           elsif dep['optional'] == false
             # only install required dependencies
+            Chef::Log.debug "#{dep['name']} is not optional, installing"
             install_plugin_from_update_center(dep['name'], dep['version'], opts)
           end
         end
@@ -286,6 +287,20 @@ EOH
       source_url.gsub!(latest_version.to_s, desired_version(plugin_name, plugin_version).to_s)
 
       install_plugin_from_url(source_url, plugin_name, desired_version(plugin_name, plugin_version), opts)
+    end
+
+    #
+    # Extract the values of the MANIFEST.MF file after reading
+    # it from the the plugin's zipped *.jpi file.
+    #
+    # @param [String] path to the *.jpi file
+    # @return [Hash] plugin manifest data
+    #
+    def extract_manifest_from_jpi(jpi_path)
+      require 'zip'
+      content = Zip::File.open(jpi_path).read('META-INF/MANIFEST.MF')
+      Chef::Log.debug("Content of #{jpi_path} manifest: #{content}")
+      content
     end
 
     #
@@ -300,6 +315,8 @@ EOH
     #
     def install_plugin_from_url(source_url, plugin_name, plugin_version = nil, opts = {})
       version = plugin_version || Digest::MD5.hexdigest(source_url)
+
+      Chef::Log.debug("Installing #{plugin_name}:#{version} from #{source_url} (opts: #{opts}")
 
       # Use the remote_file resource to download and cache the plugin (see
       # comment below for more information).
@@ -380,27 +397,38 @@ EOH
     #
     def plugin_installation_manifest(plugin_name)
       manifest = ::File.join(plugins_directory, plugin_name, 'META-INF', 'MANIFEST.MF')
-      Chef::Log.debug "Load #{plugin_name} plugin information from #{manifest}"
+      plugin_jpi = ::File.join(plugins_directory, plugin_name + '.jpi')
 
-      return nil unless ::File.exist?(manifest)
+      if ::File.exist?(manifest)
+        Chef::Log.debug "Reading #{plugin_name}'s information from #{manifest}"
+        manifest_file_stream = ::File.open(manifest, 'r', encoding: 'utf-8')
+      elsif ::File.exist?(plugin_jpi)
+        Chef::Log.debug "Reading #{plugin_name}'s information from #{plugin_jpi}"
+        manifest_file_stream = extract_manifest_from_jpi(plugin_jpi)
+      else
+        Chef::Log.debug "Plugin #{plugin_name} does not seem to be installed"
+        return nil
+      end
+
+      Chef::Log.debug "Seems plugin #{plugin_name} is already installed. Reading metadata."
 
       plugin_manifest = {}
 
-      ::File.open(manifest, 'r', encoding: 'utf-8') do |file|
-        file.each_line do |line|
-          next if line.strip.empty?
+      manifest_file_stream.each_line do |line|
+        next if line.strip.empty?
 
-          #
-          # Example Data:
-          #   Plugin-Version: 1.4
-          #
-          config, value = line.split(/:\s/, 2)
-          config = config.tr('-', '_').downcase
-          value = value.strip if value # remove trailing \r\n
+        #
+        # Example Data:
+        #   Plugin-Version: 1.4
+        #
+        config, value = line.split(/:\s/, 2)
+        config = config.tr('-', '_').downcase
+        value = value.strip if value # remove trailing \r\n
 
-          plugin_manifest[config] = value
-        end
+        plugin_manifest[config] = value
       end
+
+      Chef::Log.debug "#{plugin_name}'s manifest: #{plugin_manifest}"
 
       plugin_manifest
     end
