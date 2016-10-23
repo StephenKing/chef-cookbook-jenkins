@@ -397,7 +397,7 @@ EOH
     #
     def plugin_installation_manifest(plugin_name)
       manifest = ::File.join(plugins_directory, plugin_name, 'META-INF', 'MANIFEST.MF')
-      plugin_jpi = ::File.join(plugins_directory, plugin_name + '.jpi')
+      plugin_jpi = plugin_file(plugin_name)
 
       if ::File.exist?(manifest)
         Chef::Log.debug "Reading #{plugin_name}'s information from #{manifest}"
